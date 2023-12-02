@@ -1,61 +1,43 @@
 import os
-import sys
 import requests
 import ctypes
 import time
+import sys
 import subprocess
-
-from datetime import datetime, timedelta
-
+import shutil
+import winreg
 
 def download_apod():
-    # Get today's date
-    today = datetime.now().strftime('%Y-%m-%d')
-
-    # Build the URL for today's APOD
-    url = f'https://apod.nasa.gov/apod/ap{today[2:]}.html'
-
-    # Send a GET request to the URL
+    url = "https://apod.nasa.gov/apod/"
     response = requests.get(url)
-
-    # Check if the request was successful
     if response.status_code == 200:
-        # Extract the image URL from the HTML response
-        image_url = 'https://apod.nasa.gov/apod/' + \
-            response.text.split('<a href="image')[1].split('">')[0]
-
-        # Download the image
-        response = requests.get(image_url)
-
-        # Check if the request was successful
+        html = response.text
+        start = html.find("<a href=\"image") + 9
+        end = html.find(".jpg", start) + 4
+        img_url = url + html[start:end]
+        response = requests.get(img_url, stream=True)
         if response.status_code == 200:
-            # Save the image to disk
-            with open('apod.jpg', 'wb') as f:
-                f.write(response.content)
+            with open("apod.jpg", "wb") as f:
+                response.raw.decode_content = True
+                shutil.copyfileobj(response.raw, f)
 
-            # Set the wallpaper
-            SPI_SETDESKWALLPAPER = 20
-            ctypes.windll.user32.SystemParametersInfoW(
-                SPI_SETDESKWALLPAPER, 0, os.path.abspath('apod.jpg'), 0)
-
+def set_wallpaper():
+    SPI_SETDESKWALLPAPER = 20
+    ctypes.windll.user32.SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, os.path.abspath("apod.jpg"), 0)
 
 def install_service():
-    # Get the path to the Python executable
-    python_exe = sys.executable
+    script_path = os.path.abspath(sys.argv[0])
+    service_name = "APOD Wallpaper"
+    service_display_name = "APOD Wallpaper Service"
+    service_description = "Sets the Astronomy Picture of the Day as your Windows wallpaper every day."
+    key = winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Services\\" + service_name)
+    winreg.SetValueEx(key, "ImagePath", 0, winreg.REG_SZ, script_path)
+    winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, service_display_name)
+    winreg.SetValueEx(key, "Description", 0, winreg.REG_SZ, service_description)
+    winreg.SetValueEx(key, "Start", 0, winreg.REG_DWORD, 2)
+    winreg.CloseKey(key)
+    subprocess.call(["sc", "start", service_name])
 
-    # Get the path to the script
-    script_path = os.path.abspath(__file__)
-
-    # Build the command to install the service
-    command = f'sc create "APOD Wallpaper" binPath= "{python_exe} {script_path}" start= auto'
-
-    # Run the command
-    subprocess.run(command, shell=True)
-
-
-if __name__ == '__main__':
-    # Download today's APOD
-    download_apod()
-
-    # Install the service
-    install_service()
+download_apod()
+set_wallpaper()
+# install_service()
